@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 //- -----------------------------------------------------------------------------------------------------------------------
 // AskSin++
 // 2016-10-31 papa Creative Commons - http://creativecommons.org/licenses/by-nc-sa/3.0/de/
@@ -14,15 +16,9 @@
 #include <SPI.h>
 #include <AskSinPP.h>
 #include <Register.h>
-
 #include <MultiChannelDevice.h>
-#include <sensors/Max44009.h>
-#include <sensors/Veml6070.h>
+#include <SparkFun_VEML7700_Arduino_Library.h>
 #include "Sensors/Sens_Bme280.h"
-#include "Sensors/Sens_As3935.h"
-#include "Sensors/Sens_As5600.h"
-#include "Sensors/VentusW132.h"
-//#include "Sensors/PCF8574_WindDir.h"
 
 #define CONFIG_BUTTON_PIN                    8     // Anlerntaster-Pin
 
@@ -43,38 +39,15 @@
 #define WINDSPEEDCOUNTER_PIN                 5     // Anemometer
 #define RAINQUANTITYCOUNTER_PIN              6     // Regenmengenmesser
 
-
-#define AS3935_ENVIRONMENT                   ::Sens_As3935<>::AS3935_ENVIRONMENT_OUTDOOR
-#define AS3935_IRQ_PIN                       3     // IRQ Pin des Blitzdetektors
-#define AS3935_CS_PIN_OR_ADDR                7     // SPI: CS Pin / I2C: Address (default: 0x03)
+#define NOAS3935                                   // Kein Blitz Detektor
 
 #define WINDDIRECTION_PIN                    A2    // Pin, an dem der Windrichtungsanzeiger (RESISTORS oder PULSE) angeschlossen ist
 #define WINDDIRECTION_USE_RESISTORS
-//#define WINDDIRECTION_USE_PULSE
-
-//#define WINDDIRECTION_USE_AS5600
-//#define WINDDIRECTION_USE_PCF8574
-
-//#define WINDDIRECTION_USE_VENTUSW132
-//#define VENTUSW132_PIN_N                     A0    // Pins für den Anschluss der
-//#define VENTUSW132_PIN_O                     A1    // 4 Photodioden
-//#define VENTUSW132_PIN_S                     A2    // des Ventus W132
-//#define VENTUSW132_PIN_W                     A6    // Ersatz-Windmessers
 
 //                             N                      O                           S                           W
 //entspricht Windrichtung in ° 0 , 22.5 , 45 , 67.5 , 90 , 112.5 , 135 , 157.5 , 180 , 202.5 , 225 , 247.5 , 270 , 292.5 , 315 , 337.5
-#ifdef WINDDIRECTION_USE_PULSE
-const uint16_t WINDDIRS[] = { 70 ,   78 , 86 , 94   , 102,  108  , 116 ,    0  , 8   , 16    , 24  , 32    , 40  ,   48  , 56  , 62 };
-#endif
 #ifdef WINDDIRECTION_USE_RESISTORS
 const uint16_t WINDDIRS[] = { 58 ,   74 , 52 , 115  , 97 ,  328  , 302 ,  790  , 559 , 663   , 187 , 205   , 163 ,  420  , 129 , 153 };
-#endif
-#if defined(WINDDIRECTION_USE_VENTUSW132) || defined(WINDDIRECTION_USE_PCF8574)
-           //direction index  0   1   2    3    4    5    6    7
-const uint16_t WINDDIRS[] = { 0, 45, 90, 135, 180, 225, 270, 315 };
-#endif
-#ifdef WINDDIRECTION_USE_AS5600
-const uint16_t WINDDIRS[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 #endif
 
 #define WINDSPEED_MEASUREINTERVAL_SECONDS    5     // Messintervall (Sekunden) für Windgeschwindigkeit / Böen
@@ -90,6 +63,8 @@ const uint16_t WINDDIRS[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 #define PEERS_PER_CHANNEL          4
 
 using namespace as;
+
+VEML7700 mySensor;
 
 volatile uint32_t _rainquantity_isr_counter = 0;
 volatile uint16_t _wind_isr_counter = 0;
@@ -342,8 +317,6 @@ class WeatherChannel : public Channel<Hal, SensorList1, EmptyList, List4, PEERS_
     uint8_t       israining_alarm_count;
 
     Sens_Bme280                 bme280;
-    Veml6070<VEML6070_1_T>      veml6070;
-    MAX44009<>                  max44009;
 #ifdef WINDDIRECTION_USE_AS5600
     Sens_As5600                 as5600;
 #endif
@@ -354,10 +327,6 @@ class WeatherChannel : public Channel<Hal, SensorList1, EmptyList, List4, PEERS_
     PCF8574_WindDir<0x38> pcf;
 #endif
 
-  public:
-#ifdef __SENSORS_AS3935_h__
-    Sens_As3935<AS3935_CS_PIN_OR_ADDR, AS3935_IRQ_PIN> as3935;
-#endif
   public:
     WeatherChannel () : Channel(), Alarm(seconds2ticks(60)), temperature(0), airPressure(0), humidity(0), brightness(0), israining(false), isheating(false), raincounter(0), windspeed(0), gustspeed(0), uvindex(0), lightningcounter(0), lightningdistance(0), winddir(0), winddirrange(0), stormUpperThreshold(0), stormLowerThreshold(0), initComplete(false), initLightningDetectorDone(false), short_interval_measure_count(0), israining_alarm_count(0), wind_and_uv_measure(*this), lightning_and_raining_check(*this)  {}
     virtual ~WeatherChannel () {}
@@ -553,12 +522,8 @@ class WeatherChannel : public Channel<Hal, SensorList1, EmptyList, List4, PEERS_
     }
 
     void measure_uvindex() {
-#ifdef NSENSORS
+#ifdef NSENSORS 
       uvindex += random(11);
-#else
-      veml6070.measure();
-      //DPRINT(F("UV readUV     : ")); DDECLN(veml6070.UVValue());
-      uvindex += veml6070.UVIndex();
 #endif
     }
 
@@ -659,44 +624,9 @@ class WeatherChannel : public Channel<Hal, SensorList1, EmptyList, List4, PEERS_
     }
 
     void measure_lightning() {
-#if defined(NSENSORS) || !defined(__SENSORS_AS3935_h__)
+#if defined(NSENSORS) || defined(NOAS3935)
       lightningcounter  = 0;
       lightningdistance = 0;
-#else
-      if (!initLightningDetectorDone) {
-        as3935.init(this->getList1().LightningDetectorCapacitor(),
-                    this->getList1().LightningDetectorDisturberDetection(),
-                    AS3935_ENVIRONMENT,
-                    this->getList1().LightningDetectorMinStrikes(),
-                    this->getList1().LightningDetectorWatchdogThreshold(),
-                    this->getList1().LightningDetectorNoiseFloorLevel(),
-                    this->getList1().LightningDetectorSpikeRejection());
-        initLightningDetectorDone = true;
-      } else {
-        uint8_t lightning_dist_km = 0;
-        if (as3935.LightningIsrCounter() > 0) {
-          switch (as3935.GetInterruptSrc()) {
-            case 0:
-              DPRINTLN(F("LD IRQ SRC NOT EXPECTED"));
-              break;
-            case 1:
-              lightning_dist_km = as3935.LightningDistKm();
-              DPRINT(F("LD LIGHTNING IN ")); DDEC(lightning_dist_km); DPRINTLN(" km");
-              lightningcounter++;
-              // Wenn Zähler überläuft (255 + 1), dann 1 statt 0
-              if (lightningcounter == 0) lightningcounter = 1;
-              lightningdistance = (lightning_dist_km + 1) / 3;
-              break;
-            case 2:
-              DPRINTLN(F("LD DIST"));
-              break;
-            case 3:
-              DPRINTLN(F("LD NOISE"));
-              break;
-          }
-          as3935.ResetLightninIsrCounter();
-        }
-      }
 #endif
       //DPRINT(F("LD CNT        : ")); DDECLN(lightningcounter);
       //DPRINT(F("LD DIST       : ")); DDECLN(lightningdistance);
@@ -717,11 +647,10 @@ class WeatherChannel : public Channel<Hal, SensorList1, EmptyList, List4, PEERS_
       bme280.measure(height);
       temperature = bme280.temperature();
       airPressure = bme280.pressureNN();
-      humidity    = bme280.humidity();
-
-      max44009.measure();
-      brightness = max44009.brightness();
-      //DPRINT(F("BRIGHTNESS    : ")  ); DDECLN(brightness);
+      humidity    = bme280.humidity();         
+      brightness = mySensor.getLux()*10;
+      Serial.print(F("-Lux  : "));
+      Serial.println(brightness);
 #endif
     }
 
@@ -729,9 +658,7 @@ class WeatherChannel : public Channel<Hal, SensorList1, EmptyList, List4, PEERS_
       Channel::setup(dev, number, addr);
       tick = seconds2ticks(3);	// first message in 3 sec.
 #ifndef NSENSORS
-      max44009.init();
       bme280.init();
-      veml6070.init();
 #endif
 #ifdef WINDDIRECTION_USE_AS5600
       as5600.init();
@@ -812,6 +739,7 @@ SensChannelDevice sdev(devinfo, 0x20);
 ConfigButton<SensChannelDevice> cfgBtn(sdev);
 
 void setup () {
+  mySensor.begin();
   DINIT(57600, ASKSIN_PLUS_PLUS_IDENTIFIER);
   sdev.init(hal);
   buttonISR(cfgBtn, CONFIG_BUTTON_PIN);

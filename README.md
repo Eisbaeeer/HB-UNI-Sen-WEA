@@ -1,3 +1,16 @@
+# FORK mit Anpassungen / Änderungen
+Dieser Fork wurde auf Platformio konvertiert.
+Aufgrund der Verfügbarkeit von Sensoren basiert dieser Fork nur auf folgende i2c Sensoren:
+- BME280      
+- VEML7700
+
+Aus dem Code entfernt wurden:
+- MAX44009
+- VEML6070
+- AS3935
+
+Alle anderen Funktionen sind enthalten.
+
 # Selbstbau-868MHz-Funk-Wetterstation (mit Netzteilbetrieb) für HomeMatic [![Build Status](https://travis-ci.org/jp112sdl/HB-UNI-Sen-WEA.svg?branch=master)](https://travis-ci.org/jp112sdl/HB-UNI-Sen-WEA) [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 ### Die Dokumentation zu diesem Projekt findet ihr im -> [Wiki](https://github.com/jp112sdl/HB-UNI-Sen-WEA/wiki).
